@@ -65,12 +65,16 @@ def _parse_zone_line(
         rest = rest[:meta_match.start()].strip()
 
     parts = rest.strip().split()
-    if len(parts) < 3:
-        raise ParseError(line_num, f"Expected: {prefix}: <name> <x> <y> [metadata]")
+    if len(parts) != 3:
+        raise ParseError(
+            line_num,
+            f"Expected: {prefix}: <name> <x> <y> [metadata]")
 
     name = parts[0]
     if '-' in name or ' ' in name:
-        raise ParseError(line_num, f"Zone name '{name}' must not contain dashes or spaces")
+        raise ParseError(
+            line_num,
+            f"Zone name '{name}' must not contain dashes or spaces")
 
     try:
         x = int(parts[1])
@@ -78,8 +82,10 @@ def _parse_zone_line(
     except ValueError:
         raise ParseError(line_num, "Zone coordinates must be integers")
 
-    if x < 0 or y < 0:
-        raise ParseError(line_num, "Zone coordinates must be positive integers")
+    # if x < 0 or y < 0:
+    #     raise ParseError(
+    #         line_num,
+    #         "Zone coordinates must be positive integers")
 
     # Parse zone type
     zone_type_str = metadata.get('zone', 'normal')
@@ -116,7 +122,10 @@ def _parse_zone_line(
     )
 
 
-def _parse_connection_line(rest: str, line_num: int, graph: Graph) -> Connection:
+def _parse_connection_line(
+        rest: str,
+        line_num: int,
+        graph: Graph) -> Connection:
     """
     Parse a connection line into a Connection object.
 
@@ -161,7 +170,9 @@ def _parse_connection_line(rest: str, line_num: int, graph: Graph) -> Connection
             if max_link_capacity <= 0:
                 raise ValueError()
         except ValueError:
-            raise ParseError(line_num, "max_link_capacity must be a positive integer")
+            raise ParseError(
+                line_num,
+                "max_link_capacity must be a positive integer")
 
     return Connection(
         zone_a=zone_a,
@@ -208,39 +219,53 @@ def parse_map_file(filepath: str) -> Graph:
                 if nb <= 0:
                     raise ValueError()
             except ValueError:
-                raise ParseError(line_num, "nb_drones must be a positive integer")
+                raise ParseError(
+                    line_num,
+                    "nb_drones must be a positive integer")
             graph.nb_drones = nb
             nb_drones_set = True
 
         elif line.startswith('start_hub:'):
             if not nb_drones_set:
-                raise ParseError(line_num, "nb_drones must be defined before zones")
+                raise ParseError(
+                    line_num,
+                    "nb_drones must be defined before zones")
             rest = line[len('start_hub:'):].strip()
             zone = _parse_zone_line('start_hub', rest, line_num, True, False)
             if zone.name in graph.zones:
-                raise ParseError(line_num, f"Duplicate zone name '{zone.name}'")
+                raise ParseError(
+                    line_num,
+                    f"Duplicate zone name '{zone.name}'")
             graph.zones[zone.name] = zone
             graph.start_zone = zone
             start_count += 1
 
         elif line.startswith('end_hub:'):
             if not nb_drones_set:
-                raise ParseError(line_num, "nb_drones must be defined before zones")
+                raise ParseError(
+                    line_num,
+                    "nb_drones must be defined before zones")
             rest = line[len('end_hub:'):].strip()
             zone = _parse_zone_line('end_hub', rest, line_num, False, True)
             if zone.name in graph.zones:
-                raise ParseError(line_num, f"Duplicate zone name '{zone.name}'")
+                raise ParseError(
+                    line_num,
+                    f"Duplicate zone name '{zone.name}'")
             graph.zones[zone.name] = zone
             graph.end_zone = zone
             end_count += 1
 
         elif line.startswith('hub:'):
             if not nb_drones_set:
-                raise ParseError(line_num, "nb_drones must be defined before zones")
+                raise ParseError(
+                    line_num,
+                    "nb_drones must be defined before zones")
             rest = line[len('hub:'):].strip()
             zone = _parse_zone_line('hub', rest, line_num, False, False)
             if zone.name in graph.zones:
-                raise ParseError(line_num, f"Duplicate zone name '{zone.name}'")
+                raise ParseError(
+                    line_num,
+                    f"Duplicate zone name '{zone.name}'")
             graph.zones[zone.name] = zone
 
         elif line.startswith('connection:'):
@@ -252,7 +277,8 @@ def parse_map_file(filepath: str) -> Graph:
             if key in seen_connections:
                 raise ParseError(
                     line_num,
-                    f"Duplicate connection '{conn.zone_a.name}-{conn.zone_b.name}'"
+                    f"Duplicate connection "
+                    f"'{conn.zone_a.name}-{conn.zone_b.name}'"
                 )
             seen_connections.add(key)
             graph.connections.append(conn)
@@ -262,10 +288,16 @@ def parse_map_file(filepath: str) -> Graph:
 
     # Validate final state
     if not nb_drones_set:
-        raise ParseError(0, "Missing nb_drones definition")
+        raise ParseError(
+            0,
+            "Missing nb_drones definition")
     if start_count != 1:
-        raise ParseError(0, f"Expected exactly 1 start_hub, found {start_count}")
+        raise ParseError(
+            0,
+            f"Expected exactly 1 start_hub, found {start_count}")
     if end_count != 1:
-        raise ParseError(0, f"Expected exactly 1 end_hub, found {end_count}")
+        raise ParseError(
+            0,
+            f"Expected exactly 1 end_hub, found {end_count}")
 
     return graph
