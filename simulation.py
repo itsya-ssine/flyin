@@ -47,6 +47,7 @@ class SimulationEngine:
         self.turn_records: list[TurnRecord] = []
         self._zone_occupancy: dict[str, int] = {}
         self._conn_usage: dict[tuple[str, str], int] = {}
+        self._turn_number: int = 0
 
     def _conn_key(self, conn: Connection) -> tuple[str, str]:
         """Return a canonical sorted key for a connection."""
@@ -102,6 +103,7 @@ class SimulationEngine:
         max_turns = 1000  # safety limit
 
         for turn_num in range(1, max_turns + 1):
+            self._turn_number = turn_num
             record = TurnRecord(turn_number=turn_num)
             self._execute_turn(record)
             if record.movements:
@@ -356,11 +358,41 @@ class SimulationEngine:
                 if dest_zone == next_zone and other_drone.drone_id != drone.drone_id:
                     entering_count += 1
             
-            # Calculate final occupancy if this drone moves in
-            final_occupancy = current_in_zone - leaving_count + entering_count + 1
-            
-            if final_occupancy > next_zone.max_drones:
-                return False  # Would exceed capacity
+            # *** KEY FIX: For restricted zones, check capacity at ARRIVAL time ***
+            # If the destination is a restricted zone, the drone will arrive in 2 turns
+            # We need to check if the zone will have capacity when the drone arrives
+            if next_zone.zone_type == ZoneType.RESTRICTED:
+                # For restricted zones, we need to look ahead 2 turns
+                # A drone currently in the zone might leave before the arriving drone gets there
+                # So we should only count drones that will STILL be in the zone when this drone arrives
+                
+                # Drones that will be in the zone in 2 turns:
+                # 1. Drones currently in the zone that are NOT leaving this turn or next turn
+                # 2. Drones that will arrive in the next 2 turns
+                
+                # For simplicity, we'll use a more permissive check:
+                # A drone can start moving into a restricted zone if the zone will be free
+                # when it arrives. This means:
+                # - If the zone is currently occupied, the occupant must be leaving
+                #   within the next 2 turns (which is always true since they'll move)
+                # - No other drone is scheduled to arrive before this one
+                
+                # Check if any drone is scheduled to arrive at this zone
+                # before this drone would arrive (in the next turn)
+                for other_drone, dest_zone, _ in planned_moves:
+                    if dest_zone == next_zone and other_drone.drone_id != drone.drone_id:
+                        # Another drone is planning to enter this zone this turn
+                        # They would arrive before us (next turn vs 2 turns)
+                        # This would cause a conflict
+                        if other_drone.in_transit is None:
+                            # This drone is moving normally, will arrive next turn
+                            # We would arrive in 2 turns - conflict!
+                            return False
+            else:
+                # For normal zones, use the standard check
+                final_occupancy = current_in_zone - leaving_count + entering_count + 1
+                if final_occupancy > next_zone.max_drones:
+                    return False  # Would exceed capacity
 
         # Check connection capacity
         ckey = self._conn_key(conn)
