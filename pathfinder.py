@@ -19,7 +19,7 @@ def heuristic(zone: Zone, goal: Zone) -> float:
     Returns:
         Estimated turns to reach goal.
     """
-    return abs(zone.x - goal.x) + abs(zone.y - goal.y)
+    return (zone.x - goal.x) ** 2 + (zone.y - goal.y) ** 2
 
 
 def astar(
