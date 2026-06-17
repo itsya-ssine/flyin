@@ -193,20 +193,30 @@ class SimulationEngine:
         ]
         active_drones.sort(key=drone_priority)
 
+        # Track which drones have successfully planned a move
+        moved_drones = set()
+
+        # First pass: Try to plan moves for all drones using CURRENT state
         for drone in active_drones:
             assert drone.current_zone is not None
+            
+            # Check if this drone's target zone will be vacated by another drone
+            # that hasn't moved yet but WILL move this turn
             moved = self._try_move_drone(
                 drone,
                 post_depart_occ,
                 post_arrive_occ,
                 planned_conn_use,
                 transit_starts,
-                planned_moves
+                planned_moves,
+                moved_drones,
+                active_drones  # Pass all active drones to check for simultaneous moves
             )
             if moved:
                 # Free up current zone
                 cname = drone.current_zone.name
                 post_depart_occ[cname] = max(0, post_depart_occ.get(cname, 0) - 1)
+                moved_drones.add(drone.drone_id)
 
         # Step 4: Apply all moves
         # Complete transits
@@ -253,10 +263,13 @@ class SimulationEngine:
         post_arrive_occ: dict[str, int],
         planned_conn_use: dict[tuple[str, str], int],
         transit_starts: list[tuple[DroneState, Connection, Zone]],
-        planned_moves: list[tuple[DroneState, Zone, Optional[Connection]]]
+        planned_moves: list[tuple[DroneState, Zone, Optional[Connection]]],
+        moved_drones: set[int],
+        all_drones: list[DroneState]
     ) -> bool:
         """
         Attempt to move a drone one step along its path.
+        Now checks if target zone will be vacated by another drone moving this turn.
 
         Args:
             drone: The drone to move.
@@ -265,6 +278,8 @@ class SimulationEngine:
             planned_conn_use: Connection usage for this turn.
             transit_starts: List to record new transit starts.
             planned_moves: List to record planned zone moves.
+            moved_drones: Set of drones that have already planned moves.
+            all_drones: All active drones for checking simultaneous moves.
 
         Returns:
             True if a move was planned, False otherwise.
@@ -306,9 +321,46 @@ class SimulationEngine:
         # Check zone capacity
         is_end = next_zone == self.graph.end_zone
         if not is_end:
+            # Calculate how many drones will be in the zone after this turn
+            # = current_occupancy - drones leaving + drones entering (including this one)
+            
+            # Count drones currently in the target zone
             current_in_zone = post_arrive_occ.get(next_zone.name, 0)
-            if current_in_zone >= next_zone.max_drones:
-                return False  # Zone full
+            
+            # Count drones that will LEAVE the target zone this turn
+            # (including drones that have already planned moves AND those that will)
+            leaving_count = 0
+            for other_drone in all_drones:
+                if other_drone.drone_id == drone.drone_id:
+                    continue
+                if other_drone.current_zone == next_zone:
+                    # Check if this drone will move this turn
+                    if other_drone.drone_id in moved_drones:
+                        leaving_count += 1
+                    else:
+                        # Check if this drone CAN move (has a valid path and next zone)
+                        if other_drone.path_index + 1 < len(other_drone.path):
+                            next_other = other_drone.path[other_drone.path_index + 1]
+                            if next_other.zone_type != ZoneType.BLOCKED:
+                                # This drone might move - check if it would pass capacity checks
+                                # For simplicity, assume it can move if it wants to
+                                leaving_count += 1
+            
+            # The drone itself will leave its current zone
+            if drone.current_zone == next_zone:
+                leaving_count += 1
+            
+            # Count drones that will ENTER the target zone (already planned)
+            entering_count = 0
+            for other_drone, dest_zone, _ in planned_moves:
+                if dest_zone == next_zone and other_drone.drone_id != drone.drone_id:
+                    entering_count += 1
+            
+            # Calculate final occupancy if this drone moves in
+            final_occupancy = current_in_zone - leaving_count + entering_count + 1
+            
+            if final_occupancy > next_zone.max_drones:
+                return False  # Would exceed capacity
 
         # Check connection capacity
         ckey = self._conn_key(conn)
